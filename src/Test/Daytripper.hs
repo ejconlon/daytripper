@@ -1,9 +1,5 @@
 module Test.Daytripper
-  ( LiftIO
-  , AssertEq
-  , Ctx (..)
-  , unitCtx
-  , propCtx
+  ( MonadExpect (..)
   , Expect
   , expect
   , RT
@@ -34,42 +30,36 @@ import Test.Tasty.HUnit (testCase, (@?=))
 import Test.Tasty.Ingredients (Ingredient)
 import Test.Tasty.Options (IsOption (..), OptionDescription (..), safeRead)
 
-type LiftIO m = forall a. IO a -> m a
+class MonadFail m => MonadExpect m where
+  expectLiftIO :: IO a -> m a
+  expectAssertEq :: (Eq a, Show a) => a -> a -> m ()
 
-type AssertEq m = forall a. (Eq a, Show a) => a -> a -> m ()
+instance MonadExpect IO where
+  expectLiftIO = id
+  expectAssertEq = (@?=)
 
-data Ctx m = Ctx
-  { ctxLiftIO :: !(LiftIO m)
-  , ctxAssertEq :: !(AssertEq m)
-  }
-
-unitCtx :: Ctx IO
-unitCtx = Ctx id (@?=)
-
-propAssertEq :: AssertEq Property
-propAssertEq x y = FP.assert (FR.eq FR..$ ("LHS", x) FR..$ ("RHS", y))
-
-propCtx :: Ctx Property
-propCtx = Ctx (pure . unsafePerformIO) propAssertEq
+instance MonadExpect Property where
+  expectLiftIO = pure . unsafePerformIO
+  expectAssertEq x y = FP.assert (FR.eq FR..$ ("LHS", x) FR..$ ("RHS", y))
 
 type Expect m a b = a -> m (b, m ())
 
-expect :: (MonadFail m, Eq a, Show a) => Ctx m -> (a -> m b) -> (b -> m (Maybe a)) -> Expect m a b
-expect ctx f g a = do
+expect :: (MonadExpect m, Eq a, Show a) => (a -> m b) -> (b -> m (Maybe a)) -> Expect m a b
+expect f g a = do
   b <- f a
   pure . (b,) $ do
     ma' <- g b
     case ma' of
       Nothing -> fail "Failed roundtrip"
-      Just a' -> ctxAssertEq ctx a' a
+      Just a' -> expectAssertEq a' a
 
-runExpect :: Monad m => Expect m a () -> a -> m ()
+runExpect :: Monad m => Expect m a b -> a -> m ()
 runExpect f a = f a >>= snd
 
 data PropRT where
-  PropRT :: Show a => TestName -> Expect Property a () -> Gen a -> PropRT
+  PropRT :: Show a => TestName -> Expect Property a b -> Gen a -> PropRT
 
-propRT :: Show a => TestName -> Expect Property a () -> Gen a -> RT
+propRT :: Show a => TestName -> Expect Property a b -> Gen a -> RT
 propRT name expec gen = RTProp (PropRT name expec gen)
 
 testPropRT :: PropRT -> TestTree
@@ -79,38 +69,38 @@ testPropRT (PropRT name expec gen) =
 data FileRT where
   FileRT
     :: TestName
-    -> FilePath
     -> Expect IO a ByteString
+    -> FilePath
     -> a
     -> FileRT
 
 fileRT
   :: TestName
-  -> FilePath
   -> Expect IO a ByteString
+  -> FilePath
   -> a
   -> RT
-fileRT name fn expec val = RTFile (FileRT name fn expec val)
+fileRT name expec fn val = RTFile (FileRT name expec fn val)
 
 mkFileTripper
   :: DaytripperWriteMissing
+  -> Expect IO a ByteString
   -> FilePath
   -> Expect IO a ByteString
-  -> Expect IO a ()
-mkFileTripper (DaytripperWriteMissing wm) fp expec val = do
-  exists <- doesFileExist fp
+mkFileTripper (DaytripperWriteMissing wm) expec fn val = do
+  exists <- doesFileExist fn
   mcon <-
     if exists
-      then fmap Just (BS.readFile fp)
+      then fmap Just (BS.readFile fn)
       else
         if wm
           then pure Nothing
-          else fail ("File missing: " <> fp)
+          else fail ("File missing: " ++ fn)
   (bs, end) <- expec val
-  pure . ((),) $ do
+  pure . (bs,) $ do
     end
     case mcon of
-      Nothing -> BS.writeFile fp bs
+      Nothing -> BS.writeFile fn bs
       Just con -> bs @?= con
 
 testFileRT :: FileRT -> TestTree
@@ -118,9 +108,9 @@ testFileRT (FileRT name fp expec val) = askOption $ \dwm ->
   testCase name (runExpect (mkFileTripper dwm fp expec) val)
 
 data UnitRT where
-  UnitRT :: TestName -> Expect IO a () -> a -> UnitRT
+  UnitRT :: TestName -> Expect IO a b -> a -> UnitRT
 
-unitRT :: TestName -> Expect IO a () -> a -> RT
+unitRT :: TestName -> Expect IO a b -> a -> RT
 unitRT name expec val = RTUnit (UnitRT name expec val)
 
 testUnitRT :: UnitRT -> TestTree

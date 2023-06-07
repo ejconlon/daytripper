@@ -1,11 +1,11 @@
 module Test.Daytripper
   ( MonadExpect (..)
   , Expect
-  , expect
+  , mkExpect
   , RT
-  , propRT
-  , fileRT
-  , unitRT
+  , mkPropRT
+  , mkFileRT
+  , mkUnitRT
   , testRT
   , DaytripperWriteMissing (..)
   , daytripperIngredients
@@ -44,8 +44,8 @@ instance MonadExpect Property where
 
 type Expect m a b = a -> m (b, m ())
 
-expect :: (MonadExpect m, Eq a, Show a) => (a -> m b) -> (b -> m (Maybe a)) -> Expect m a b
-expect f g a = do
+mkExpect :: (MonadExpect m, Eq a, Show a) => (a -> m b) -> (b -> m (Maybe a)) -> Expect m a b
+mkExpect f g a = do
   b <- f a
   pure . (b,) $ do
     ma' <- g b
@@ -59,8 +59,8 @@ runExpect f a = f a >>= snd
 data PropRT where
   PropRT :: Show a => TestName -> Expect Property a b -> Gen a -> PropRT
 
-propRT :: Show a => TestName -> Expect Property a b -> Gen a -> RT
-propRT name expec gen = RTProp (PropRT name expec gen)
+mkPropRT :: Show a => TestName -> Expect Property a b -> Gen a -> RT
+mkPropRT name expec gen = RTProp (PropRT name expec gen)
 
 testPropRT :: PropRT -> TestTree
 testPropRT (PropRT name expec gen) =
@@ -74,20 +74,20 @@ data FileRT where
     -> a
     -> FileRT
 
-fileRT
+mkFileRT
   :: TestName
   -> Expect IO a ByteString
   -> FilePath
   -> a
   -> RT
-fileRT name expec fn val = RTFile (FileRT name expec fn val)
+mkFileRT name expec fn val = RTFile (FileRT name expec fn val)
 
-mkFileTripper
+mkFileExpect
   :: DaytripperWriteMissing
   -> Expect IO a ByteString
   -> FilePath
   -> Expect IO a ByteString
-mkFileTripper (DaytripperWriteMissing wm) expec fn val = do
+mkFileExpect (DaytripperWriteMissing wm) expec fn val = do
   exists <- doesFileExist fn
   mcon <-
     if exists
@@ -105,13 +105,13 @@ mkFileTripper (DaytripperWriteMissing wm) expec fn val = do
 
 testFileRT :: FileRT -> TestTree
 testFileRT (FileRT name fp expec val) = askOption $ \dwm ->
-  testCase name (runExpect (mkFileTripper dwm fp expec) val)
+  testCase name (runExpect (mkFileExpect dwm fp expec) val)
 
 data UnitRT where
   UnitRT :: TestName -> Expect IO a b -> a -> UnitRT
 
-unitRT :: TestName -> Expect IO a b -> a -> RT
-unitRT name expec val = RTUnit (UnitRT name expec val)
+mkUnitRT :: TestName -> Expect IO a b -> a -> RT
+mkUnitRT name expec val = RTUnit (UnitRT name expec val)
 
 testUnitRT :: UnitRT -> TestTree
 testUnitRT (UnitRT name expec val) =

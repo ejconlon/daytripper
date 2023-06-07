@@ -7,12 +7,13 @@ module Main
 where
 
 import Data.ByteString (ByteString)
-import Test.Daytripper (Expect, MonadExpect (..), daytripperMain, fileRT, propRT, testRT, unitRT)
+import Data.ByteString qualified as BS
+import Test.Daytripper (Expect, MonadExpect (..), daytripperMain, mkExpect, mkFileRT, mkPropRT, mkUnitRT, testRT)
 import Test.Falsify.Generator qualified as Gen
 import Test.Tasty (testGroup)
 
 expec :: MonadExpect m => Expect m ByteString ByteString
-expec = error "TODO"
+expec = mkExpect (\a -> pure (a <> a)) (\b -> pure (Just (BS.take (div (BS.length b) 2) b)))
 
 main :: IO ()
 main =
@@ -20,7 +21,7 @@ main =
     testGroup "Daytripper" $
       fmap
         testRT
-        [ propRT "prop" expec (Gen.choose (pure "a") (pure "b"))
-        , unitRT "unit" expec "a"
-        , fileRT "file" expec "testdata/b.txt" "b"
+        [ mkPropRT "prop" expec (Gen.choose (pure "a") (pure "b"))
+        , mkUnitRT "unit" expec "a"
+        , mkFileRT "file" expec "testdata/b.txt" "b"
         ]

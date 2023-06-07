@@ -5,3 +5,6 @@ ghc-options:
 
 packages:
 - .
+
+extra-deps:
+- falsify-0.1.1

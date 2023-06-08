@@ -1,6 +1,9 @@
 module Test.Daytripper
   ( MonadExpect (..)
   , Expect
+  , expectStart
+  , expectMiddle
+  , expectEnd
   , mkExpect
   , RT
   , mkPropRT
@@ -16,6 +19,7 @@ where
 import Control.Monad (void)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
+import Data.Foldable (for_)
 import Data.Proxy (Proxy (..))
 import Data.Tagged (Tagged, untag)
 import Options.Applicative (flag', help, long)
@@ -49,6 +53,18 @@ instance MonadExpect Property where
 -- first encoding, then decoding. The monad is typically something implementing
 -- 'MonadExpect', with assertions performed before returning values for further processing.
 type Expect m a b c = a -> m (b, m c)
+
+-- | Assert something before encoding and before decoding
+expectStart :: Monad m => (a -> m ()) -> Expect m a b c -> Expect m a b c
+expectStart f ex a = f a >> ex a
+
+-- | Assert something after encoding and before decoding
+expectMiddle :: Monad m => (a -> b -> m ()) -> Expect m a b c -> Expect m a b c
+expectMiddle f ex a = ex a >>= \p@(b, _) -> p <$ f a b
+
+-- | Asserting something after encoding and after decoding
+expectEnd :: Monad m => (a -> b -> c -> m ()) -> Expect m a b c -> Expect m a b c
+expectEnd f ex a = ex a >>= \(b, end) -> end >>= \c -> (b, pure c) <$ f a b c
 
 -- | One way of definining expectations from a pair of encode/decode functions.
 -- Generalizes decoding in 'Maybe' or 'Either'.
@@ -112,10 +128,11 @@ mkFileExpect (DaytripperWriteMissing wm) expec fn val = do
           else fail ("File missing: " ++ fn)
   (bs, end) <- expec val
   pure . (bs,) $ do
+    for_ mcon (bs @?=)
     c <- end
     case mcon of
       Nothing -> BS.writeFile fn bs
-      Just con -> bs @?= con
+      Just _ -> pure ()
     pure c
 
 testFileRT :: FileRT -> TestTree

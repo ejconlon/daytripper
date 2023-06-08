@@ -1,9 +1,9 @@
 module Test.Daytripper
   ( MonadExpect (..)
   , Expect
-  , expectStart
-  , expectMiddle
-  , expectEnd
+  , expectBefore
+  , expectDuring
+  , expectAfter
   , mkExpect
   , RT
   , mkPropRT
@@ -54,17 +54,17 @@ instance MonadExpect Property where
 -- 'MonadExpect', with assertions performed before returning values for further processing.
 type Expect m a b c = a -> m (b, m c)
 
--- | Assert something before encoding and before decoding
-expectStart :: Monad m => (a -> m ()) -> Expect m a b c -> Expect m a b c
-expectStart f ex a = f a >> ex a
+-- | Assert something before processing (before encoding and before decoding)
+expectBefore :: Monad m => (a -> m ()) -> Expect m a b c -> Expect m a b c
+expectBefore f ex a = f a >> ex a
 
--- | Assert something after encoding and before decoding
-expectMiddle :: Monad m => (a -> b -> m ()) -> Expect m a b c -> Expect m a b c
-expectMiddle f ex a = ex a >>= \p@(b, _) -> p <$ f a b
+-- | Assert something during processing (after encoding and before decoding)
+expectDuring :: Monad m => (a -> b -> m ()) -> Expect m a b c -> Expect m a b c
+expectDuring f ex a = ex a >>= \p@(b, _) -> p <$ f a b
 
--- | Asserting something after encoding and after decoding
-expectEnd :: Monad m => (a -> b -> c -> m ()) -> Expect m a b c -> Expect m a b c
-expectEnd f ex a = ex a >>= \(b, end) -> end >>= \c -> (b, pure c) <$ f a b c
+-- | Asserting something after processing (after encoding and after decoding)
+expectAfter :: Monad m => (a -> b -> c -> m ()) -> Expect m a b c -> Expect m a b c
+expectAfter f ex a = ex a >>= \(b, end) -> end >>= \c -> (b, pure c) <$ f a b c
 
 -- | One way of definining expectations from a pair of encode/decode functions.
 -- Generalizes decoding in 'Maybe' or 'Either'.

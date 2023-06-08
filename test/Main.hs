@@ -12,8 +12,16 @@ import Test.Daytripper (Expect, MonadExpect (..), daytripperMain, mkExpect, mkFi
 import Test.Falsify.Generator qualified as Gen
 import Test.Tasty (testGroup)
 
-expec :: MonadExpect m => Expect m ByteString ByteString
-expec = mkExpect (\a -> pure (a <> a)) (\b -> pure (Just (BS.take (div (BS.length b) 2) b)))
+expec :: MonadExpect m => Expect m ByteString ByteString (Maybe ByteString)
+expec = mkExpect enc dec
+ where
+  enc a = pure (a <> a)
+  dec b =
+    pure $
+      let a = BS.take (div (BS.length b) 2) b
+      in  if b == a <> a
+            then Just a
+            else Nothing
 
 main :: IO ()
 main =

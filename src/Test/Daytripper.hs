@@ -52,19 +52,20 @@ instance MonadExpect Property where
 -- | A general type of test expectation. Captures two stages of processing an input,
 -- first encoding, then decoding. The monad is typically something implementing
 -- 'MonadExpect', with assertions performed before returning values for further processing.
-type Expect m a b c = a -> m (b, m c)
+-- The input is possibly missing, in which case we test decoding only.
+type Expect m a b c = Either b a -> m (b, m c)
 
 -- | Assert something before processing (before encoding and before decoding)
 expectBefore :: Monad m => (a -> m ()) -> Expect m a b c -> Expect m a b c
-expectBefore f ex a = f a >> ex a
+expectBefore f ex i = for_ i f >> ex i
 
 -- | Assert something during processing (after encoding and before decoding)
 expectDuring :: Monad m => (a -> b -> m ()) -> Expect m a b c -> Expect m a b c
-expectDuring f ex a = ex a >>= \p@(b, _) -> p <$ f a b
+expectDuring f ex i = ex i >>= \p@(b, _) -> p <$ for_ i (`f` b)
 
 -- | Asserting something after processing (after encoding and after decoding)
 expectAfter :: Monad m => (a -> b -> c -> m ()) -> Expect m a b c -> Expect m a b c
-expectAfter f ex a = ex a >>= \(b, end) -> end >>= \c -> (b, pure c) <$ f a b c
+expectAfter f ex i = ex i >>= \(b, end) -> end >>= \c -> (b, pure c) <$ for_ i (\a -> f a b c)
 
 -- | One way of definining expectations from a pair of encode/decode functions.
 -- Generalizes decoding in 'Maybe' or 'Either'.
@@ -73,16 +74,16 @@ mkExpect
   => (a -> m b)
   -> (b -> m (f a))
   -> Expect m a b (f a)
-mkExpect f g a = do
-  b <- f a
+mkExpect f g i = do
+  b <- either pure f i
   pure . (b,) $ do
     fa <- g b
-    expectAssertEq fa (pure a)
+    for_ i (expectAssertEq fa . pure)
     pure fa
 
 -- | Simple way to run an expectation, ignoring the intermediate value.
 runExpect :: Monad m => Expect m a b c -> a -> m c
-runExpect f a = f a >>= snd
+runExpect f a = f (Right a) >>= snd
 
 data PropRT where
   PropRT :: Show a => TestName -> Expect Property a b c -> Gen a -> PropRT
@@ -100,7 +101,7 @@ data FileRT where
     :: TestName
     -> Expect IO a ByteString c
     -> FilePath
-    -> a
+    -> Maybe a
     -> FileRT
 
 -- | Create a file-based ("golden") roundtrip test
@@ -108,36 +109,28 @@ mkFileRT
   :: TestName
   -> Expect IO a ByteString c
   -> FilePath
-  -> a
+  -> Maybe a
   -> RT
-mkFileRT name expec fn val = RTFile (FileRT name expec fn val)
+mkFileRT name expec fn mval = RTFile (FileRT name expec fn mval)
 
-mkFileExpect
-  :: DaytripperWriteMissing
-  -> Expect IO a ByteString c
-  -> FilePath
-  -> Expect IO a ByteString c
-mkFileExpect (DaytripperWriteMissing wm) expec fn val = do
-  exists <- doesFileExist fn
-  mcon <-
-    if exists
-      then fmap Just (BS.readFile fn)
-      else
-        if wm
-          then pure Nothing
-          else fail ("File missing: " ++ fn)
-  (bs, end) <- expec val
-  pure . (bs,) $ do
+testFileRT :: FileRT -> TestTree
+testFileRT (FileRT name expec fn mval) = askOption $ \dwm ->
+  testCase name $ do
+    exists <- doesFileExist fn
+    (mcon, eval) <-
+      if exists
+        then do
+          con <- BS.readFile fn
+          pure (Just con, maybe (Left con) Right mval)
+        else case (dwm, mval) of
+          (DaytripperWriteMissing True, Just val) -> pure (Nothing, Right val)
+          _ -> fail ("File missing: " ++ fn)
+    (bs, end) <- expec eval
     for_ mcon (bs @?=)
-    c <- end
+    _ <- end
     case mcon of
       Nothing -> BS.writeFile fn bs
       Just _ -> pure ()
-    pure c
-
-testFileRT :: FileRT -> TestTree
-testFileRT (FileRT name fp expec val) = askOption $ \dwm ->
-  testCase name (void (runExpect (mkFileExpect dwm fp expec) val))
 
 data UnitRT where
   UnitRT :: TestName -> Expect IO a b c -> a -> UnitRT

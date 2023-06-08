@@ -31,5 +31,6 @@ main =
         testRT
         [ mkPropRT "prop" expec (Gen.choose (pure "a") (pure "b"))
         , mkUnitRT "unit" expec "a"
-        , mkFileRT "file" expec "testdata/b.txt" "b"
+        , mkFileRT "file just" expec "testdata/b.txt" (Just "b")
+        , mkFileRT "file nothing" expec "testdata/c.txt" Nothing
         ]

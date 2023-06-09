@@ -16,7 +16,7 @@ module Test.Daytripper
   )
 where
 
-import Control.Monad (void)
+import Control.Monad (unless, void)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.Foldable (for_)
@@ -31,7 +31,7 @@ import Test.Falsify.Property (Property)
 import Test.Falsify.Property qualified as FP
 import Test.Tasty (TestName, TestTree, askOption, defaultIngredients, defaultMainWithIngredients, includingOptions)
 import Test.Tasty.Falsify (testProperty)
-import Test.Tasty.HUnit (testCase, (@?=))
+import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 import Test.Tasty.Ingredients (Ingredient)
 import Test.Tasty.Options (IsOption (..), OptionDescription (..), safeRead)
 
@@ -40,14 +40,20 @@ import Test.Tasty.Options (IsOption (..), OptionDescription (..), safeRead)
 class MonadFail m => MonadExpect m where
   expectLiftIO :: IO a -> m a
   expectAssertEq :: (Eq a, Show a) => a -> a -> m ()
+  expectAssertFailure :: String -> m ()
+  expectAssertBool :: String -> Bool -> m ()
+  expectAssertBool s b = unless b (expectAssertFailure s)
 
 instance MonadExpect IO where
   expectLiftIO = id
   expectAssertEq = (@?=)
+  expectAssertFailure = assertFailure
+  expectAssertBool = assertBool
 
 instance MonadExpect Property where
   expectLiftIO = pure . unsafePerformIO
   expectAssertEq x y = FP.assert (FR.eq FR..$ ("LHS", x) FR..$ ("RHS", y))
+  expectAssertFailure = FP.testFailed
 
 -- | A general type of test expectation. Captures two stages of processing an input,
 -- first encoding, then decoding. The monad is typically something implementing
@@ -55,31 +61,35 @@ instance MonadExpect Property where
 -- The input is possibly missing, in which case we test decoding only.
 type Expect m a b c = Either b a -> m (b, m c)
 
+eitherMay :: Either b a -> Maybe a
+eitherMay = either (const Nothing) Just
+
 -- | Assert something before processing (before encoding and before decoding)
-expectBefore :: Monad m => (a -> m ()) -> Expect m a b c -> Expect m a b c
-expectBefore f ex i = for_ i f >> ex i
+expectBefore :: Monad m => (Maybe a -> m ()) -> Expect m a b c -> Expect m a b c
+expectBefore f ex i = f (eitherMay i) >> ex i
 
 -- | Assert something during processing (after encoding and before decoding)
-expectDuring :: Monad m => (a -> b -> m ()) -> Expect m a b c -> Expect m a b c
-expectDuring f ex i = ex i >>= \p@(b, _) -> p <$ for_ i (`f` b)
+expectDuring :: Monad m => (Maybe a -> b -> m ()) -> Expect m a b c -> Expect m a b c
+expectDuring f ex i = ex i >>= \p@(b, _) -> p <$ f (eitherMay i) b
 
 -- | Asserting something after processing (after encoding and after decoding)
-expectAfter :: Monad m => (a -> b -> c -> m ()) -> Expect m a b c -> Expect m a b c
-expectAfter f ex i = ex i >>= \(b, end) -> end >>= \c -> (b, pure c) <$ for_ i (\a -> f a b c)
+expectAfter :: Monad m => (Maybe a -> b -> c -> m ()) -> Expect m a b c -> Expect m a b c
+expectAfter f ex i = ex i >>= \(b, end) -> end >>= \c -> (b, pure c) <$ f (eitherMay i) b c
 
--- | One way of definining expectations from a pair of encode/decode functions.
--- Generalizes decoding in 'Maybe' or 'Either'.
+-- | A way of definining expectations from a pair of encode/decode functions and
+-- a comparison function.
 mkExpect
-  :: (MonadExpect m, Eq (f a), Show (f a), Applicative f)
+  :: MonadExpect m
   => (a -> m b)
-  -> (b -> m (f a))
-  -> Expect m a b (f a)
-mkExpect f g i = do
+  -> (b -> m c)
+  -> (Maybe a -> c -> m ())
+  -> Expect m a b c
+mkExpect f g h i = do
   b <- either pure f i
   pure . (b,) $ do
-    fa <- g b
-    for_ i (expectAssertEq fa . pure)
-    pure fa
+    c <- g b
+    h (either (const Nothing) Just i) c
+    pure c
 
 -- | Simple way to run an expectation, ignoring the intermediate value.
 runExpect :: Monad m => Expect m a b c -> a -> m c

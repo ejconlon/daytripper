@@ -5,6 +5,7 @@ module Test.Daytripper
   , expectDuring
   , expectAfter
   , mkExpect
+  , runExpect
   , RT
   , mkPropRT
   , mkFileRT

@@ -1,4 +1,4 @@
-resolver: lts-20.24
+resolver: lts-21.19
 
 ghc-options:
   "$everything": -haddock
@@ -7,4 +7,4 @@ packages:
 - .
 
 extra-deps:
-- falsify-0.1.1
+- falsify-0.2.0

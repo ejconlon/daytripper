@@ -1,4 +1,4 @@
-resolver: lts-21.19
+resolver: lts-22.0
 
 ghc-options:
   "$everything": -haddock
@@ -8,3 +8,8 @@ packages:
 
 extra-deps:
 - falsify-0.2.0
+
+# TODO Remove when falsify is updated
+allow-newer: true
+allow-newer-deps:
+- falsify

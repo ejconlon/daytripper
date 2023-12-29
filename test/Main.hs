@@ -15,7 +15,7 @@ import Test.Tasty (testGroup)
 
 type Cmp m = Maybe ByteString -> Maybe ByteString -> m ()
 
-expec :: MonadExpect m => Cmp m -> Expect m ByteString ByteString (Maybe ByteString)
+expec :: (MonadExpect m) => Cmp m -> Expect m ByteString ByteString (Maybe ByteString)
 expec = mkExpect enc dec
  where
   enc a = pure (a <> a)
@@ -26,7 +26,7 @@ expec = mkExpect enc dec
             then Just a
             else Nothing
 
-expecOk, expecFail :: MonadExpect m => Expect m ByteString ByteString (Maybe ByteString)
+expecOk, expecFail :: (MonadExpect m) => Expect m ByteString ByteString (Maybe ByteString)
 expecOk =
   expec $
     maybe

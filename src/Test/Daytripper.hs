@@ -38,7 +38,7 @@ import Test.Tasty.Options (IsOption (..), OptionDescription (..), safeRead)
 
 -- | Interface for asserting and performing IO in tests.
 -- TODO Migrate to 'MonadIO' superclass when Falsify supports it.
-class MonadFail m => MonadExpect m where
+class (MonadFail m) => MonadExpect m where
   expectLiftIO :: IO a -> m a
   expectAssertEq :: (Eq a, Show a) => a -> a -> m ()
   expectAssertFailure :: String -> m ()
@@ -66,21 +66,21 @@ eitherMay :: Either b a -> Maybe a
 eitherMay = either (const Nothing) Just
 
 -- | Assert something before processing (before encoding and before decoding)
-expectBefore :: Monad m => (Maybe a -> m ()) -> Expect m a b c -> Expect m a b c
+expectBefore :: (Monad m) => (Maybe a -> m ()) -> Expect m a b c -> Expect m a b c
 expectBefore f ex i = f (eitherMay i) >> ex i
 
 -- | Assert something during processing (after encoding and before decoding)
-expectDuring :: Monad m => (Maybe a -> b -> m ()) -> Expect m a b c -> Expect m a b c
+expectDuring :: (Monad m) => (Maybe a -> b -> m ()) -> Expect m a b c -> Expect m a b c
 expectDuring f ex i = ex i >>= \p@(b, _) -> p <$ f (eitherMay i) b
 
 -- | Asserting something after processing (after encoding and after decoding)
-expectAfter :: Monad m => (Maybe a -> b -> c -> m ()) -> Expect m a b c -> Expect m a b c
+expectAfter :: (Monad m) => (Maybe a -> b -> c -> m ()) -> Expect m a b c -> Expect m a b c
 expectAfter f ex i = ex i >>= \(b, end) -> end >>= \c -> (b, pure c) <$ f (eitherMay i) b c
 
 -- | A way of definining expectations from a pair of encode/decode functions and
 -- a comparison function.
 mkExpect
-  :: MonadExpect m
+  :: (MonadExpect m)
   => (a -> m b)
   -> (b -> m c)
   -> (Maybe a -> c -> m ())
@@ -93,14 +93,14 @@ mkExpect f g h i = do
     pure c
 
 -- | Simple way to run an expectation, ignoring the intermediate value.
-runExpect :: Monad m => Expect m a b c -> a -> m c
+runExpect :: (Monad m) => Expect m a b c -> a -> m c
 runExpect f a = f (Right a) >>= snd
 
 data PropRT where
-  PropRT :: Show a => TestName -> Expect Property a b c -> Gen a -> PropRT
+  PropRT :: (Show a) => TestName -> Expect Property a b c -> Gen a -> PropRT
 
 -- | Create a property-based roundtrip test
-mkPropRT :: Show a => TestName -> Expect Property a b c -> Gen a -> RT
+mkPropRT :: (Show a) => TestName -> Expect Property a b c -> Gen a -> RT
 mkPropRT name expec gen = RTProp (PropRT name expec gen)
 
 testPropRT :: PropRT -> TestTree

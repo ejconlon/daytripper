@@ -7,9 +7,5 @@ packages:
 - .
 
 extra-deps:
-- falsify-0.2.0
+- falsify-0.2.0@r1
 
-# TODO Remove when falsify is updated
-allow-newer: true
-allow-newer-deps:
-- falsify

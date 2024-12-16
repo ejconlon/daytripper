@@ -9,13 +9,14 @@ where
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.Maybe (isJust, isNothing)
-import Test.Daytripper (Expect, MonadExpect (..), daytripperMain, mkExpect, mkFileRT, mkPropRT, mkUnitRT, testRT)
-import Test.Falsify.Generator qualified as Gen
+import Hedgehog.Gen qualified as Gen
+import PropUnit (MonadTest, assert, (===))
+import Test.Daytripper (Expect, daytripperMain, mkExpect, mkFileRT, mkPropRT, mkUnitRT, testRT)
 import Test.Tasty (testGroup)
 
 type Cmp m = Maybe ByteString -> Maybe ByteString -> m ()
 
-expec :: (MonadExpect m) => Cmp m -> Expect m ByteString ByteString (Maybe ByteString)
+expec :: (Monad m) => Cmp m -> Expect m ByteString ByteString (Maybe ByteString)
 expec = mkExpect enc dec
  where
   enc a = pure (a <> a)
@@ -26,21 +27,21 @@ expec = mkExpect enc dec
             then Just a
             else Nothing
 
-expecOk, expecFail :: (MonadExpect m) => Expect m ByteString ByteString (Maybe ByteString)
+expecOk, expecFail :: (MonadTest m) => Expect m ByteString ByteString (Maybe ByteString)
 expecOk =
   expec $
     maybe
-      (expectAssertBool "expected Just" . isJust)
-      (\a mc -> expectAssertEq mc (Just a))
-expecFail = expec (const (expectAssertBool "expected Nothing" . isNothing))
+      (assert . isJust)
+      (\a mc -> mc === Just a)
+expecFail = expec (const (assert . isNothing))
 
 main :: IO ()
 main =
-  daytripperMain $
+  daytripperMain $ \lim ->
     testGroup "Daytripper" $
       fmap
-        testRT
-        [ mkPropRT "prop" expecOk (Gen.choose (pure "a") (pure "b"))
+        (testRT lim)
+        [ mkPropRT "prop" expecOk (Gen.element ["a", "b"])
         , mkUnitRT "unit" expecOk "a"
         , mkFileRT "file just" expecOk "testdata/b.txt" (Just "b")
         , mkFileRT "file nothing" expecOk "testdata/c.txt" Nothing

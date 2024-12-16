@@ -1,6 +1,5 @@
 module Test.Daytripper
-  ( MonadExpect (..)
-  , Expect
+  ( Expect
   , expectBefore
   , expectDuring
   , expectAfter
@@ -17,44 +16,19 @@ module Test.Daytripper
   )
 where
 
-import Control.Monad (unless, void)
+import Control.Monad (void)
+import Control.Monad.IO.Class (liftIO)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.Foldable (for_)
 import Data.Proxy (Proxy (..))
 import Data.Tagged (Tagged, untag)
 import Options.Applicative (flag', help, long)
+import PropUnit (Gen, PropertyT, TestLimit, forAll, setupTests, testProp, testUnit, (===))
 import System.Directory (doesFileExist)
-import System.IO.Unsafe (unsafePerformIO)
-import Test.Falsify.Generator (Gen)
-import Test.Falsify.Predicate qualified as FR
-import Test.Falsify.Property (Property)
-import Test.Falsify.Property qualified as FP
 import Test.Tasty (TestName, TestTree, askOption, defaultIngredients, defaultMainWithIngredients, includingOptions)
-import Test.Tasty.Falsify (testProperty)
-import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 import Test.Tasty.Ingredients (Ingredient)
 import Test.Tasty.Options (IsOption (..), OptionDescription (..), safeRead)
-
--- | Interface for asserting and performing IO in tests.
--- TODO Migrate to 'MonadIO' superclass when Falsify supports it.
-class (MonadFail m) => MonadExpect m where
-  expectLiftIO :: IO a -> m a
-  expectAssertEq :: (Eq a, Show a) => a -> a -> m ()
-  expectAssertFailure :: String -> m ()
-  expectAssertBool :: String -> Bool -> m ()
-  expectAssertBool s b = unless b (expectAssertFailure s)
-
-instance MonadExpect IO where
-  expectLiftIO = id
-  expectAssertEq = (@?=)
-  expectAssertFailure = assertFailure
-  expectAssertBool = assertBool
-
-instance MonadExpect Property where
-  expectLiftIO = pure . unsafePerformIO
-  expectAssertEq x y = FP.assert (FR.eq FR..$ ("LHS", x) FR..$ ("RHS", y))
-  expectAssertFailure = FP.testFailed
 
 -- | A general type of test expectation. Captures two stages of processing an input,
 -- first encoding, then decoding. The monad is typically something implementing
@@ -80,7 +54,7 @@ expectAfter f ex i = ex i >>= \(b, end) -> end >>= \c -> (b, pure c) <$ f (eithe
 -- | A way of definining expectations from a pair of encode/decode functions and
 -- a comparison function.
 mkExpect
-  :: (MonadExpect m)
+  :: (Monad m)
   => (a -> m b)
   -> (b -> m c)
   -> (Maybe a -> c -> m ())
@@ -97,20 +71,20 @@ runExpect :: (Monad m) => Expect m a b c -> a -> m c
 runExpect f a = f (Right a) >>= snd
 
 data PropRT where
-  PropRT :: (Show a) => TestName -> Expect Property a b c -> Gen a -> PropRT
+  PropRT :: (Show a) => TestName -> Expect (PropertyT IO) a b c -> Gen a -> PropRT
 
 -- | Create a property-based roundtrip test
-mkPropRT :: (Show a) => TestName -> Expect Property a b c -> Gen a -> RT
+mkPropRT :: (Show a) => TestName -> Expect (PropertyT IO) a b c -> Gen a -> RT
 mkPropRT name expec gen = RTProp (PropRT name expec gen)
 
-testPropRT :: PropRT -> TestTree
-testPropRT (PropRT name expec gen) =
-  testProperty name (FP.gen gen >>= void . runExpect expec)
+testPropRT :: TestLimit -> PropRT -> TestTree
+testPropRT lim (PropRT name expec gen) =
+  testProp name lim (forAll gen >>= void . runExpect expec)
 
 data FileRT where
   FileRT
     :: TestName
-    -> Expect IO a ByteString c
+    -> Expect (PropertyT IO) a ByteString c
     -> FilePath
     -> Maybe a
     -> FileRT
@@ -118,7 +92,7 @@ data FileRT where
 -- | Create a file-based ("golden") roundtrip test
 mkFileRT
   :: TestName
-  -> Expect IO a ByteString c
+  -> Expect (PropertyT IO) a ByteString c
   -> FilePath
   -> Maybe a
   -> RT
@@ -126,33 +100,33 @@ mkFileRT name expec fn mval = RTFile (FileRT name expec fn mval)
 
 testFileRT :: FileRT -> TestTree
 testFileRT (FileRT name expec fn mval) = askOption $ \dwm ->
-  testCase name $ do
-    exists <- doesFileExist fn
+  testUnit name $ do
+    exists <- liftIO (doesFileExist fn)
     (mcon, eval) <-
       if exists
         then do
-          con <- BS.readFile fn
+          con <- liftIO (BS.readFile fn)
           pure (Just con, maybe (Left con) Right mval)
         else case (dwm, mval) of
           (DaytripperWriteMissing True, Just val) -> pure (Nothing, Right val)
           _ -> fail ("File missing: " ++ fn)
     (bs, end) <- expec eval
-    for_ mcon (bs @?=)
+    for_ mcon (bs ===)
     _ <- end
     case mcon of
-      Nothing -> BS.writeFile fn bs
+      Nothing -> liftIO (BS.writeFile fn bs)
       Just _ -> pure ()
 
 data UnitRT where
-  UnitRT :: TestName -> Expect IO a b c -> a -> UnitRT
+  UnitRT :: TestName -> Expect (PropertyT IO) a b c -> a -> UnitRT
 
 -- | Create a unit roundtrip test
-mkUnitRT :: TestName -> Expect IO a b c -> a -> RT
+mkUnitRT :: TestName -> Expect (PropertyT IO) a b c -> a -> RT
 mkUnitRT name expec val = RTUnit (UnitRT name expec val)
 
 testUnitRT :: UnitRT -> TestTree
 testUnitRT (UnitRT name expec val) =
-  testCase name (void (runExpect expec val))
+  testUnit name (void (runExpect expec val))
 
 data RT
   = RTProp !PropRT
@@ -160,9 +134,9 @@ data RT
   | RTUnit !UnitRT
 
 -- | Run a roundtrip test
-testRT :: RT -> TestTree
-testRT = \case
-  RTProp x -> testPropRT x
+testRT :: TestLimit -> RT -> TestTree
+testRT lim = \case
+  RTProp x -> testPropRT lim x
   RTFile x -> testFileRT x
   RTUnit x -> testUnitRT x
 
@@ -193,5 +167,7 @@ daytripperIngredients =
     : defaultIngredients
 
 -- | Tasty main with write-missing support
-daytripperMain :: TestTree -> IO ()
-daytripperMain = defaultMainWithIngredients daytripperIngredients
+daytripperMain :: (TestLimit -> TestTree) -> IO ()
+daytripperMain f = do
+  lim <- setupTests
+  defaultMainWithIngredients daytripperIngredients (f lim)

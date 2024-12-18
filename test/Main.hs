@@ -9,10 +9,9 @@ where
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.Maybe (isJust, isNothing)
-import Hedgehog.Gen qualified as Gen
-import PropUnit (MonadTest, assert, (===))
+import PropUnit (MonadTest, assert, testGroup, (===))
+import PropUnit.Hedgehog.Gen qualified as Gen
 import Test.Daytripper (Expect, daytripperMain, mkExpect, mkFileRT, mkPropRT, mkUnitRT, testRT)
-import Test.Tasty (testGroup)
 
 type Cmp m = Maybe ByteString -> Maybe ByteString -> m ()
 
@@ -40,7 +39,7 @@ main =
   daytripperMain $ \lim ->
     testGroup "Daytripper" $
       fmap
-        (testRT lim)
+        (testRT (Just lim))
         [ mkPropRT "prop" expecOk (Gen.element ["a", "b"])
         , mkUnitRT "unit" expecOk "a"
         , mkFileRT "file just" expecOk "testdata/b.txt" (Just "b")

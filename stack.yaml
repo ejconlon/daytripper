@@ -7,5 +7,5 @@ packages:
 - .
 
 extra-deps:
-- prop-unit-0.2.0
+- prop-unit-1.0.1
 

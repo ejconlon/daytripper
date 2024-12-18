@@ -5,12 +5,12 @@
 
 packages:
 - completed:
-    hackage: prop-unit-0.2.0@sha256:a2cfe8027343565ba577e3ea4c978b18c376e946cb304f39ebeff2c373af4598,2957
+    hackage: prop-unit-1.0.1@sha256:db1fdcc30294c15beff28cc62a5baf34a9d217bea3f3fa49720b406f3fc4e94b,3035
     pantry-tree:
-      sha256: b0f2b5ded48abfcb3aad0e8d0c9ea39c5117e286a0a163cd14dfb804d80a9eed
-      size: 264
+      sha256: 84c321efc37e92481c584086a5b85967b991ee5bb17b3db856221d6eef8480b1
+      size: 466
   original:
-    hackage: prop-unit-0.2.0
+    hackage: prop-unit-1.0.1
 snapshots:
 - completed:
     sha256: 9444fadfa30b67a93080254d53872478c087592ad64443e47c546cdcd13149ae

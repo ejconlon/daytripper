@@ -21,10 +21,11 @@ import Control.Monad.IO.Class (liftIO)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.Foldable (for_)
+import Data.Maybe (fromMaybe)
 import Data.Proxy (Proxy (..))
 import Data.Tagged (Tagged, untag)
 import Options.Applicative (flag', help, long)
-import PropUnit (Gen, PropertyT, TestLimit, forAll, setupTests, testProp, testUnit, (===))
+import PropUnit (Gen, PropertyT, TestLimit, TestT, defaultTestLimit, forAll, setupTests, testProp, testUnit, (===))
 import System.Directory (doesFileExist)
 import Test.Tasty (TestName, TestTree, askOption, defaultIngredients, defaultMainWithIngredients, includingOptions)
 import Test.Tasty.Ingredients (Ingredient)
@@ -77,14 +78,15 @@ data PropRT where
 mkPropRT :: (Show a) => TestName -> Expect (PropertyT IO) a b c -> Gen a -> RT
 mkPropRT name expec gen = RTProp (PropRT name expec gen)
 
-testPropRT :: TestLimit -> PropRT -> TestTree
-testPropRT lim (PropRT name expec gen) =
-  testProp name lim (forAll gen >>= void . runExpect expec)
+testPropRT :: Maybe TestLimit -> PropRT -> TestTree
+testPropRT mlim (PropRT name expec gen) =
+  let lim = fromMaybe defaultTestLimit mlim
+  in  testProp name lim (forAll gen >>= void . runExpect expec)
 
 data FileRT where
   FileRT
     :: TestName
-    -> Expect (PropertyT IO) a ByteString c
+    -> Expect (TestT IO) a ByteString c
     -> FilePath
     -> Maybe a
     -> FileRT
@@ -92,7 +94,7 @@ data FileRT where
 -- | Create a file-based ("golden") roundtrip test
 mkFileRT
   :: TestName
-  -> Expect (PropertyT IO) a ByteString c
+  -> Expect (TestT IO) a ByteString c
   -> FilePath
   -> Maybe a
   -> RT
@@ -118,10 +120,10 @@ testFileRT (FileRT name expec fn mval) = askOption $ \dwm ->
       Just _ -> pure ()
 
 data UnitRT where
-  UnitRT :: TestName -> Expect (PropertyT IO) a b c -> a -> UnitRT
+  UnitRT :: TestName -> Expect (TestT IO) a b c -> a -> UnitRT
 
 -- | Create a unit roundtrip test
-mkUnitRT :: TestName -> Expect (PropertyT IO) a b c -> a -> RT
+mkUnitRT :: TestName -> Expect (TestT IO) a b c -> a -> RT
 mkUnitRT name expec val = RTUnit (UnitRT name expec val)
 
 testUnitRT :: UnitRT -> TestTree
@@ -134,9 +136,9 @@ data RT
   | RTUnit !UnitRT
 
 -- | Run a roundtrip test
-testRT :: TestLimit -> RT -> TestTree
-testRT lim = \case
-  RTProp x -> testPropRT lim x
+testRT :: Maybe TestLimit -> RT -> TestTree
+testRT mlim = \case
+  RTProp x -> testPropRT mlim x
   RTFile x -> testFileRT x
   RTUnit x -> testUnitRT x
 
